@@ -69,6 +69,7 @@ dependencies = [
 name = "sliding_window_nif"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "rustler",
 ]
 
