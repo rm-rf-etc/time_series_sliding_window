@@ -2,6 +2,7 @@
 /_build/
 /.elixir_ls/
 /priv/
+/native/sliding_window_nif/target/
 
 # If you run "mix test --cover", coverage assets end up here.
 /cover/

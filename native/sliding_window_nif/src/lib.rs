@@ -1,20 +1,12 @@
-use rustler::ResourceArc;
 use rustler::types::list::ListIterator;
+use rustler::ResourceArc;
 use rustler::{Env, Term};
-
 use std::sync::Mutex;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::vec::Vec;
 
+mod sliding_window;
+use sliding_window::SlidingWindow;
 
-pub struct SlidingWindow {
-    map: HashMap<String, Vec<Option<f32>>>,
-    labels: Vec<String>,
-    index: usize,
-    length: usize,
-    width: usize,
-}
 pub struct Container {
     mutex: Mutex<SlidingWindow>,
 }
@@ -24,107 +16,76 @@ fn load(env: Env, _info: Term) -> bool {
     true
 }
 
-rustler::init!("Elixir.SlidingWindowNif", [new, push, print], load=load);
-
+rustler::init!(
+    "Elixir.SlidingWindowNif",
+    [new, push, print, replace_latest],
+    load = load
+);
 
 #[rustler::nif]
 fn new<'a>(labels: ListIterator<'a>, length: usize) -> Result<ResourceArc<Container>, &str> {
-    let mut width = 0;
-    let mut columns = Vec::new();
-    let mut map = HashMap::new();
-
-    for label in labels {
-        width += 1;
-        match label.decode::<String>() {
-            Ok(string) => {
-                columns.push(string.clone());
-                let mut list = Vec::with_capacity(length);
-                for _ in 0..length {
-                    list.push(None);
-                }
-                map.insert(string.clone(), list);
-            }
-            Err(_) => {}
-        }
+    if length <= 0 {
+        return Err("length must be 1 or more");
     }
 
-    if width > 0 {
-        let container = Container {
-            mutex: Mutex::new(SlidingWindow {
-                map: map,
-                labels: columns,
-                index: 0,
-                length,
-                width,
-            }),
-        };
-        Ok(ResourceArc::new(container))
-    } else {
-        Err("new received invalid arguments")
+    let columns = labels
+        .filter_map(|s| s.decode::<String>().ok())
+        .collect::<Vec<String>>();
+
+    if columns.len() <= 0 {
+        return Err("columns must be a list of strings");
     }
+
+    let new_table = SlidingWindow::new(columns, length);
+
+    let container = Container {
+        mutex: Mutex::new(new_table),
+    };
+
+    Ok(ResourceArc::new(container))
 }
 
 #[rustler::nif]
 fn push<'a>(container: ResourceArc<Container>, row: ListIterator<'a>) -> Result<bool, &str> {
-    let mut width = 0;
-    let mut list = Vec::new();
-
-    for r in row {
-        width += 1;
-        match r.decode::<f32>() {
-            Ok(f) => { list.push(Some(f)); }
-            Err(_) => { list.push(None); }
-        }
-    }
+    let row_vec = row
+        .map(|r| match r.decode::<f32>() {
+            Ok(f) => Some(f),
+            Err(_) => None,
+        })
+        .collect::<Vec<Option<f32>>>();
 
     let mut window = container.mutex.lock().unwrap();
 
-    if width != window.width {
+    if row_vec.len() != window.width {
+        return Err("Row length must match table width");
+    } else {
+        window.push(row_vec);
+    }
+
+    Ok(true)
+}
+
+#[rustler::nif]
+fn replace_latest<'a>(
+    container: ResourceArc<Container>,
+    row: ListIterator<'a>,
+) -> Result<bool, &str> {
+    let row_vec = row
+        .map(|r| r.decode::<f32>().ok())
+        .collect::<Vec<Option<f32>>>();
+
+    let mut window = container.mutex.lock().unwrap();
+
+    if row_vec.len() != window.width {
         return Err("Row length must match table width");
     }
 
-    let idx = window.index;
-    let labels = window.labels.clone();
-
-    for i in 0..window.width {
-        match window.map.entry(labels[i].to_string()) {
-            Entry::Vacant(_) => {}
-            Entry::Occupied(mut e) => {
-                e.get_mut()[idx] = list[i];
-            }
-        }
-    }
-
-    window.index = (window.index + 1) % window.length;
+    window.update(row_vec);
 
     Ok(true)
 }
 
 #[rustler::nif]
 fn print(container: ResourceArc<Container>) {
-    let window = container.mutex.lock().unwrap();
-
-    for (_, column) in window.map.iter() {
-        println!("{:?}\r", column);
-    }
+    container.mutex.lock().unwrap().print();
 }
-
-
-// #[rustler::nif]
-// fn add(a: ResourceArc<Container>, b: ResourceArc<Container>) -> f32 {
-//     let num_a = *a.n.lock().unwrap();
-//     let num_b = *b.n.lock().unwrap();
-//     num_a + num_b
-// }
-
-// #[rustler::nif]
-// fn read(a: ResourceArc<Container>) -> f32 {
-//     *a.n.lock().unwrap()
-// }
-
-// #[rustler::nif]
-// fn update(a: ResourceArc<Container>, b: f32) -> bool {
-//     let mut val = a.n.lock().unwrap()?;
-//     *val = b?;
-//     true
-// }

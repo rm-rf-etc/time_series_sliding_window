@@ -1,0 +1,18 @@
+#[rustler::nif]
+fn add(a: ResourceArc<Container>, b: ResourceArc<Container>) -> f32 {
+    let num_a = *a.n.lock().unwrap();
+    let num_b = *b.n.lock().unwrap();
+    num_a + num_b
+}
+
+#[rustler::nif]
+fn read(a: ResourceArc<Container>) -> f32 {
+    *a.n.lock().unwrap()
+}
+
+#[rustler::nif]
+fn update(a: ResourceArc<Container>, b: f32) -> bool {
+    let mut val = a.n.lock().unwrap()?;
+    *val = b?;
+    true
+}
