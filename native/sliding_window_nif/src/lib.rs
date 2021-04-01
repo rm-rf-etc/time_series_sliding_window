@@ -1,25 +1,21 @@
-use rustler::types::list::ListIterator;
-use rustler::ResourceArc;
-use rustler::{Env, Term};
+use rustler::{types::list::ListIterator, Env, ResourceArc};
 use std::sync::Mutex;
 use std::vec::Vec;
 
 mod sliding_window;
 use sliding_window::SlidingWindow;
 
-pub struct Container {
+struct Container {
     mutex: Mutex<SlidingWindow>,
-}
-
-fn load(env: Env, _info: Term) -> bool {
-    rustler::resource!(Container, env);
-    true
 }
 
 rustler::init!(
     "Elixir.SlidingWindowNif",
-    [new, push, print, replace_latest],
-    load = load
+    [new, push, add_column, drop_column, print, replace],
+    load = |env: Env, _| {
+        rustler::resource!(Container, env);
+        true
+    }
 );
 
 #[rustler::nif]
@@ -36,56 +32,66 @@ fn new<'a>(labels: ListIterator<'a>, length: usize) -> Result<ResourceArc<Contai
         return Err("columns must be a list of strings");
     }
 
-    let new_table = SlidingWindow::new(columns, length);
+    let table = SlidingWindow::new(columns, length);
 
     let container = Container {
-        mutex: Mutex::new(new_table),
+        mutex: Mutex::new(table),
     };
 
     Ok(ResourceArc::new(container))
 }
 
 #[rustler::nif]
-fn push<'a>(container: ResourceArc<Container>, row: ListIterator<'a>) -> Result<bool, &str> {
-    let row_vec = row
-        .map(|r| match r.decode::<f32>() {
-            Ok(f) => Some(f),
-            Err(_) => None,
-        })
-        .collect::<Vec<Option<f32>>>();
-
-    let mut window = container.mutex.lock().unwrap();
-
-    if row_vec.len() != window.width {
-        return Err("Row length must match table width");
-    } else {
-        window.push(row_vec);
-    }
-
-    Ok(true)
-}
-
-#[rustler::nif]
-fn replace_latest<'a>(
-    container: ResourceArc<Container>,
-    row: ListIterator<'a>,
-) -> Result<bool, &str> {
+fn push<'a>(con: ResourceArc<Container>, row: ListIterator<'a>) -> Result<bool, &str> {
     let row_vec = row
         .map(|r| r.decode::<f32>().ok())
         .collect::<Vec<Option<f32>>>();
 
-    let mut window = container.mutex.lock().unwrap();
+    let mut table = con.mutex.lock().unwrap();
 
-    if row_vec.len() != window.width {
+    if row_vec.len() != table.map.len() {
         return Err("Row length must match table width");
+    } else {
+        table.push(row_vec);
     }
-
-    window.update(row_vec);
 
     Ok(true)
 }
 
 #[rustler::nif]
-fn print(container: ResourceArc<Container>) {
-    container.mutex.lock().unwrap().print();
+fn replace<'a>(arc: ResourceArc<Container>, row: ListIterator<'a>) -> Result<bool, &str> {
+    let row_vec = row
+        .map(|r| r.decode::<f32>().ok())
+        .collect::<Vec<Option<f32>>>();
+
+    let mut table = arc.mutex.lock().unwrap();
+
+    if row_vec.len() != table.map.len() {
+        return Err("Row length must match table width");
+    }
+
+    table.replace(row_vec);
+
+    Ok(true)
+}
+
+#[rustler::nif]
+fn add_column<'a>(arc: ResourceArc<Container>, label: String) -> Result<bool, &'a str> {
+    match arc.mutex.lock().unwrap().add_column(label) {
+        Ok(_) => Ok(true),
+        Err(_) => Err("key already exists"),
+    }
+}
+
+#[rustler::nif]
+fn drop_column<'a>(arc: ResourceArc<Container>, label: String) -> Result<bool, &'a str> {
+    match arc.mutex.lock().unwrap().drop_column(label) {
+        Ok(_) => Ok(true),
+        Err(_) => Err("no matching column with that key"),
+    }
+}
+
+#[rustler::nif]
+fn print(arc: ResourceArc<Container>) {
+    arc.mutex.lock().unwrap().print();
 }
