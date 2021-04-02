@@ -49,13 +49,12 @@ fn push<'a>(con: ResourceArc<Container>, row: ListIterator<'a>) -> Result<bool, 
 
     let mut table = con.mutex.lock().unwrap();
 
-    if row_vec.len() != table.map.len() {
-        return Err("Row length must match table width");
-    } else {
+    if row_vec.len() == table.map.len() {
         table.push(row_vec);
+        Ok(true)
+    } else {
+        Err("Row length must match table width")
     }
-
-    Ok(true)
 }
 
 #[rustler::nif]
@@ -66,13 +65,12 @@ fn replace<'a>(arc: ResourceArc<Container>, row: ListIterator<'a>) -> Result<boo
 
     let mut table = arc.mutex.lock().unwrap();
 
-    if row_vec.len() != table.map.len() {
+    if row_vec.len() == table.map.len() {
+        table.replace(row_vec);
+        Ok(true)
+    } else {
         return Err("Row length must match table width");
     }
-
-    table.replace(row_vec);
-
-    Ok(true)
 }
 
 #[rustler::nif]
