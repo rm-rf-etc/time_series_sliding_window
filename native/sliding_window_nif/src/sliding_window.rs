@@ -1,5 +1,12 @@
+use rustler::NifMap;
 use std::collections::HashMap;
 use std::vec::Vec;
+
+#[derive(NifMap)]
+pub struct RenderedTable {
+    headers: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+}
 
 pub struct SlidingWindow {
     pub map: HashMap<String, Vec<Option<f32>>>,
@@ -31,20 +38,16 @@ impl SlidingWindow {
 
     // push a new row
     pub fn push(&mut self, row: Vec<Option<f32>>) {
+        self.index = (self.index + 1) % self.length;
         for (i, map_key) in self.labels.iter().enumerate() {
             self.map.get_mut(map_key).unwrap()[self.index] = row[i];
         }
-        self.index = (self.index + 1) % self.length;
     }
 
     // replace the most recent row
     pub fn replace(&mut self, values: Vec<Option<f32>>) {
-        let row = match self.index {
-            0 => self.length - 1,
-            _ => self.index - 1,
-        };
         for (i, map_key) in self.labels.iter().enumerate() {
-            self.map.get_mut(map_key).unwrap()[row] = values[i];
+            self.map.get_mut(map_key).unwrap()[self.index] = values[i];
         }
     }
 
@@ -63,6 +66,28 @@ impl SlidingWindow {
             Ok(())
         } else {
             Err(())
+        }
+    }
+
+    pub fn inspect_table(&mut self) -> RenderedTable {
+        let mut table = Vec::new();
+
+        for i in 0..self.length {
+            let idx = (i + self.index + 1) % self.length;
+            let row = self
+                .map
+                .iter()
+                .map(|(_, vec)| match vec[idx] {
+                    Some(n) => Some(format!("{:.6}", n)),
+                    None => None,
+                })
+                .collect::<Vec<Option<String>>>();
+            table.push(row);
+        }
+
+        RenderedTable {
+            headers: self.labels.clone(),
+            rows: table,
         }
     }
 
