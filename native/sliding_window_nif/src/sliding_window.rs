@@ -13,6 +13,7 @@ pub struct SlidingWindow {
     pub labels: Vec<String>,
     pub index: usize,
     pub length: usize,
+    pub precision: usize,
 }
 
 fn new_column(length: usize) -> Vec<Option<f32>> {
@@ -20,7 +21,10 @@ fn new_column(length: usize) -> Vec<Option<f32>> {
 }
 
 impl SlidingWindow {
-    pub fn new(labels: Vec<String>, length: usize) -> Self {
+    pub fn new<'a>(labels: Vec<String>, length: usize, precision: usize) -> Result<Self, &'a str> {
+        if length <= 0 || precision <= 0 {
+            return Err("invalid arguments received");
+        }
         let single_column = new_column(length);
 
         let mut map = HashMap::new();
@@ -28,12 +32,13 @@ impl SlidingWindow {
             map.insert(label.clone(), single_column.clone());
         });
 
-        SlidingWindow {
+        Ok(SlidingWindow {
+            precision,
             index: 0,
             labels,
             length,
             map,
-        }
+        })
     }
 
     // push a new row
@@ -73,12 +78,11 @@ impl SlidingWindow {
         let mut table = Vec::new();
 
         for i in 0..self.length {
-            let idx = (i + self.index + 1) % self.length;
             let row = self
                 .map
                 .iter()
-                .map(|(_, vec)| match vec[idx] {
-                    Some(n) => Some(format!("{:.6}", n)),
+                .map(|(_, vec)| match vec[(i + self.index + 1) % self.length] {
+                    Some(n) => Some(format!("{:.prec$}", n, prec = self.precision)),
                     None => None,
                 })
                 .collect::<Vec<Option<String>>>();

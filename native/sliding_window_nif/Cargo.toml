@@ -12,3 +12,4 @@ crate-type = ["dylib"]
 [dependencies]
 rustler = "0.22.0-rc.0"
 lazy_static = "1.4.0"
+csv = "1.1"
