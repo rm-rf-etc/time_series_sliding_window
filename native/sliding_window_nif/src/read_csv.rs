@@ -1,9 +1,9 @@
 use std::error::Error;
 use std::fs::File;
 
-pub fn stream<F>(file_path: String, callback: F) -> Result<bool, Box<dyn Error>>
+pub fn stream<F>(file_path: String, callback: &mut F) -> Result<bool, Box<dyn Error>>
 where
-    F: Fn(Option<Vec<Option<f32>>>) -> (),
+    F: FnMut(Option<Vec<Option<f32>>>) -> (),
 {
     let file = File::open(file_path)?;
     let mut rdr = csv::Reader::from_reader(file);
@@ -17,8 +17,17 @@ where
         callback(Some(row));
     }
 
-    // None signals EOF
+    // send None to signal EOF
     callback(None);
 
     Ok(true)
+}
+
+pub fn get_header_count(file_path: String) -> Result<usize, Box<dyn Error>> {
+    let file = File::open(file_path)?;
+    let mut rdr = csv::Reader::from_reader(file);
+    match rdr.headers().ok() {
+        Some(headers) => Ok(headers.len()),
+        None => Ok(0),
+    }
 }

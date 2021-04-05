@@ -23,16 +23,32 @@ defmodule SlidingWindowNif do
   @spec print(table()) :: no_return()
   def print(_), do: error()
 
-  @spec stream_csv(table(), pid(), binary()) :: no_return()
+  @spec stream_csv(table(), pid(), binary()) :: :ok
   defp stream_csv(_, _, _), do: error()
 
   @spec csv(table(), binary(), fun() | nil) :: :done
   def csv(table, file_path, func \\ nil)
       when is_binary(file_path) and (is_function(func) or is_nil(func)) do
-    stream_csv(table, self(), file_path)
-    stream_read_loop(func)
+    case stream_csv(table, self(), file_path) do
+      {:error, reason} ->
+        {:error, reason}
 
-    {:ok, table}
+      {:ok, _} ->
+        case func do
+          nil -> stream_read_loop()
+          _ -> stream_read_loop(func)
+        end
+
+        {:ok, table}
+    end
+  end
+
+  @spec stream_read_loop() :: no_return()
+  defp stream_read_loop do
+    receive do
+      :done -> nil
+      _ -> stream_read_loop()
+    end
   end
 
   @spec stream_read_loop(fun()) :: no_return()
@@ -42,7 +58,7 @@ defmodule SlidingWindowNif do
         func.(msg)
         stream_read_loop(func)
 
-      nil ->
+      :done ->
         nil
     end
   end

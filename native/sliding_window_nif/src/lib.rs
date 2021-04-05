@@ -1,4 +1,3 @@
-use rustler::types::atom;
 use rustler::types::list::ListIterator;
 use rustler::Encoder;
 use rustler::Env;
@@ -7,6 +6,10 @@ use rustler::ResourceArc;
 use std::mem::drop;
 use std::sync::Mutex;
 use std::vec::Vec;
+
+rustler::atoms! {
+    done
+}
 
 mod read_csv;
 mod sliding_window;
@@ -134,17 +137,25 @@ fn print(arc: TableArc) {
 }
 
 #[rustler::nif]
-fn stream_csv(env: Env, arc: TableArc, pid: LocalPid, file_path: String) {
-    read_csv::stream(file_path, move |line| match line {
-        Some(vec) => {
-            let mut table = arc.mutex.lock().unwrap();
-            if vec.len() == table.hashmap.len() {
-                table.push(vec.clone());
-                env.send(&pid, vec.encode(env))
+fn stream_csv(env: Env, arc: TableArc, pid: LocalPid, file_path: String) -> Result<(), String> {
+    let mut table = arc.mutex.lock().unwrap();
+
+    match read_csv::get_header_count(file_path.clone()) {
+        Ok(col_count) => {
+            if col_count != table.hashmap.len() {
+                return Err("column count mismatch between CSV and table".to_string());
             }
-            drop(table);
         }
-        None => env.send(&pid, atom::nil().encode(env)),
+        Err(msg) => {
+            return Err(msg.to_string());
+        }
+    }
+
+    read_csv::stream(file_path, &mut move |line| match line {
+        Some(vec) => table.push(vec),
+        None => env.send(&pid, done().encode(env)),
     })
     .unwrap();
+
+    Ok(())
 }
