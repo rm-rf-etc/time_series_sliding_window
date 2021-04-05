@@ -1,8 +1,9 @@
+use rustler::types::atom;
 use rustler::types::list::ListIterator;
+use rustler::Encoder;
 use rustler::Env;
+use rustler::LocalPid;
 use rustler::ResourceArc;
-// use rustler::Term;
-// use std::ops::FnOnce;
 use std::mem::drop;
 use std::sync::Mutex;
 use std::vec::Vec;
@@ -27,7 +28,7 @@ rustler::init!(
         print,
         replace,
         inspect_table,
-        csv_start
+        stream_csv
     ],
     load = |env: Env, _| {
         rustler::resource!(Container, env);
@@ -133,11 +134,10 @@ fn print(arc: Res) {
 }
 
 #[rustler::nif]
-fn csv_start(file_path: String) {
-    //, callback: Term) {
-    // rustler::thread::spawn(env, callback);
-    read_csv::run(file_path, |s| {
-        println!("{:?}\r", s);
+fn stream_csv(env: Env, pid: LocalPid, file_path: String) {
+    read_csv::stream(file_path, move |line| match line {
+        Some(vec) => env.send(&pid, vec.encode(env)),
+        None => env.send(&pid, atom::nil().encode(env)),
     })
     .unwrap();
 }
