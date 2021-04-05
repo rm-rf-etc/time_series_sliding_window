@@ -16,7 +16,7 @@ struct Container {
     mutex: Mutex<SlidingWindow>,
 }
 
-type Res = ResourceArc<Container>;
+type TableArc = ResourceArc<Container>;
 
 rustler::init!(
     "Elixir.SlidingWindowNif",
@@ -38,7 +38,7 @@ rustler::init!(
 );
 
 #[rustler::nif]
-fn new<'a>(labels: ListIterator<'a>, length: usize, precision: usize) -> Result<Res, &str> {
+fn new<'a>(labels: ListIterator<'a>, length: usize, precision: usize) -> Result<TableArc, &str> {
     if length <= 0 {
         return Err("length must be 1 or more");
     }
@@ -64,14 +64,14 @@ fn new<'a>(labels: ListIterator<'a>, length: usize, precision: usize) -> Result<
 }
 
 #[rustler::nif]
-fn push<'a>(arc: Res, row: ListIterator<'a>) -> Result<Res, &str> {
+fn push<'a>(arc: TableArc, row: ListIterator<'a>) -> Result<TableArc, &str> {
     let row_vec = row
         .map(|r| r.decode::<f32>().ok())
         .collect::<Vec<Option<f32>>>();
 
     let mut table = arc.mutex.lock().unwrap();
 
-    if row_vec.len() == table.map.len() {
+    if row_vec.len() == table.hashmap.len() {
         table.push(row_vec);
         drop(table);
         Ok(arc)
@@ -81,14 +81,14 @@ fn push<'a>(arc: Res, row: ListIterator<'a>) -> Result<Res, &str> {
 }
 
 #[rustler::nif]
-fn replace<'a>(arc: Res, row: ListIterator<'a>) -> Result<Res, &str> {
+fn replace<'a>(arc: TableArc, row: ListIterator<'a>) -> Result<TableArc, &str> {
     let row_vec = row
         .map(|r| r.decode::<f32>().ok())
         .collect::<Vec<Option<f32>>>();
 
     let mut table = arc.mutex.lock().unwrap();
 
-    if row_vec.len() == table.map.len() {
+    if row_vec.len() == table.hashmap.len() {
         table.replace(row_vec);
         drop(table);
         Ok(arc)
@@ -98,7 +98,7 @@ fn replace<'a>(arc: Res, row: ListIterator<'a>) -> Result<Res, &str> {
 }
 
 #[rustler::nif]
-fn add_column<'a>(arc: Res, label: String) -> Result<Res, &'a str> {
+fn add_column<'a>(arc: TableArc, label: String) -> Result<TableArc, &'a str> {
     let mut table = arc.mutex.lock().unwrap();
 
     match table.add_column(label) {
@@ -111,7 +111,7 @@ fn add_column<'a>(arc: Res, label: String) -> Result<Res, &'a str> {
 }
 
 #[rustler::nif]
-fn drop_column<'a>(arc: Res, label: String) -> Result<Res, &'a str> {
+fn drop_column<'a>(arc: TableArc, label: String) -> Result<TableArc, &'a str> {
     let mut table = arc.mutex.lock().unwrap();
 
     match table.drop_column(label) {
@@ -124,19 +124,26 @@ fn drop_column<'a>(arc: Res, label: String) -> Result<Res, &'a str> {
 }
 
 #[rustler::nif]
-fn inspect_table<'a>(arc: Res) -> RenderedTable {
+fn inspect_table<'a>(arc: TableArc) -> RenderedTable {
     arc.mutex.lock().unwrap().inspect_table()
 }
 
 #[rustler::nif]
-fn print(arc: Res) {
+fn print(arc: TableArc) {
     arc.mutex.lock().unwrap().print();
 }
 
 #[rustler::nif]
-fn stream_csv(env: Env, pid: LocalPid, file_path: String) {
+fn stream_csv(env: Env, arc: TableArc, pid: LocalPid, file_path: String) {
     read_csv::stream(file_path, move |line| match line {
-        Some(vec) => env.send(&pid, vec.encode(env)),
+        Some(vec) => {
+            let mut table = arc.mutex.lock().unwrap();
+            if vec.len() == table.hashmap.len() {
+                table.push(vec.clone());
+                env.send(&pid, vec.encode(env))
+            }
+            drop(table);
+        }
         None => env.send(&pid, atom::nil().encode(env)),
     })
     .unwrap();
